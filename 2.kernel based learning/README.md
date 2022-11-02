@@ -234,7 +234,7 @@ print(df_results.rank(method='average', axis=1, ascending=False).mean())
 
 실험 결과, linear kernel을 사용하는 것이 가장 좋은 성능을 보이며 rbf kernel, polynomial kernel, sigmoid kernel 순으로 성능이 좋았다.
 
-이 실험 결과는 우리가 일반적으로 알고 있는 사실과 달랐기 때문에 그에 대한 원인 분석을 해보았다.
+이 실험 결과는 우리가 일반적으로 알고 있는 '보통 비선형 결정경계를 위해 kernel을 활용하면 더 성능이 좋다.'라는 사실과 달랐기 때문에 그에 대한 원인 분석을 해보았다.
 
 
 |    |   linear |   poly |   sigmoid |   rbf |
@@ -257,12 +257,99 @@ print(df_results.rank(method='average', axis=1, ascending=False).mean())
 
 먼저 이 위의 표는 데이터셋별 rank 전체를 보여준다.
 
-위 표를 자세히 살펴보면 linear kernel의 성능이 좋은 데이터셋은 인덱스 기준 0~10번이며 11~14번 데이터셋은 rbf kernel이 가장 좋았다.
+위 표를 자세히 살펴보면 linear kernel의 성능이 좋은 데이터셋은 인덱스 기준 0-10번이며 11-14번 데이터셋은 rbf kernel이 가장 좋았다.
 
-여기서 0~10번 데이터는 정형 데이터이며 데이터 수가 100~600개로 매우 적으며 입력 변수의 개수 역시 4~30개로 적다는 것을 알 수 있다.
+여기서 0-10번 데이터는 정형 데이터이며 데이터 수가 100-600개로 매우 적으며 입력 변수의 개수 역시 4-30개로 적다는 것을 알 수 있다.
 
-반면에 11~14번 데이터는 비정형 이미지 데이터이며 데이터 수와 변수의 개수가 훨씬 큰 것을 볼 수 있다.
+반면에 11-14번 데이터는 비정형 이미지 데이터이며 데이터 수와 변수의 개수가 훨씬 큰 것을 볼 수 있다.
 
 즉, 데이터의 수와 변수가 적으면 kernel을 활용하는 것이 성능에 악영향을 준다는 것이다.
 
+#### 과적합 
 
+그 원인을 생각해보면 가장 먼저 떠올릴 수 있는 것은 과적합 문제일 것이다.
+
+과적합은 학습 데이터가 적은 상황에서 모델이 학습 데이터에 너무 fitting되서 일반화 성능이 떨어지는 현상을 말한다.
+
+실제로 과적합 문제가 발생했는지 확인하기 위해서 학습 데이터 성능과 테스트 데이터 성능의 차이를 확인해보았다.
+
+SVM_experiments 함수를 약간 수정하여 학습 데이터에 대한 정확도까지 출력하는 overfitting_check함수를 만들고, linear kernel과 rbf kernel에 대해 실험을 진행하였다.
+
+```py
+def overfitting_check(data, kernel, svm_configs={'C':1}):
+    seed_list = [0,1,2,3,4,5,6,7,8,9]
+    train_acc_list = []
+    test_acc_list = []
+
+    for seed in seed_list:
+        set_seed(seed)
+        
+        X_train, X_test, y_train, y_test = train_test_split(data['x'], data['y'], 
+                                                            test_size=0.33,
+                                                            random_state=seed)
+        
+        svm = SVC(kernel=kernel, random_state=seed, **svm_configs)
+        svm.fit(X_train, y_train)
+        
+        train_pred = svm.predict(X_train)
+        train_acc_list.append(accuracy_score(y_train, train_pred)*100)
+        
+        test_pred = svm.predict(X_test)
+        test_acc_list.append(accuracy_score(y_test, test_pred)*100)
+    
+    return round(np.mean(train_acc_list),2), round(np.mean(test_acc_list),2)
+
+df_results = pd.DataFrame()
+
+df_results['Dataset'] = data_list
+df_time['Dataset'] = data_list
+
+for kernel in ['linear','rbf']:
+    train_acc_list = []
+    test_acc_list = []
+
+    for key, data in datasets.items():
+        
+        train_acc, test_acc = overfitting_check(data, kernel)
+        
+        train_acc_list.append(train_acc)
+        test_acc_list.append(test_acc)
+
+    
+    df_results[f'{kernel} train acc'] = train_acc_list
+    df_results[f'{kernel} test acc'] = test_acc_list
+```
+
+|    | Dataset                        |   linear train acc |   linear test acc |   rbf train acc |   rbf test acc |
+|:--:|:------------------------------:|:------------------:|:-----------------:|:---------------:|:--------------:|
+|  0 | iris                           |              98.3  |             97.6  |           97    |          96.6  |
+|  1 | breast_cancer                  |              96.54 |             95.37 |           91.21 |          91.76 |
+|  2 | wine                           |              99.75 |             94.92 |           68.57 |          68.81 |
+|  3 | penguins                       |              99.82 |             99.45 |           99.6  |          99.45 |
+|  4 | titanic                        |             100    |            100    |           99.75 |          94.59 |
+|  5 | algerian_forest_fires          |              98.1  |             95.93 |           96.13 |          93.21 |
+|  6 | breast_cancer_coimbra          |              76.62 |             72.82 |           88.96 |          72.05 |
+|  7 | heart_failure_clinical_records |              85.05 |             82.22 |           90.4  |          81.01 |
+|  8 | seeds                          |              95.21 |             94.71 |           93.86 |          94.57 |
+|  9 | HCV                            |              98.68 |             94.51 |           97.49 |          93.13 |
+| 10 | breast_tissue                  |              76.34 |             65.14 |           68.73 |          58    |
+| 11 | digits                         |             100    |             97.21 |           99.56 |          98.62 |
+| 12 | MNIST                          |             100    |             87.98 |           98.41 |          91.62 |
+| 13 | FashionMNIST                   |             100    |             80.59 |           88.38 |          81.11 |
+| 14 | KMNIST                         |             100    |             75.66 |           98.18 |          83.72 |
+
+위 테이블에서 비교한 결과를 보면 breast_cancer_coimbra나 heart_failure_clinical_records 데이터셋에서는 과적합이 발생하여 테스트 성능이 떨어지는 것을 확인할 수 있다.
+
+하지만 다른 대부분의 데이터에서는 학습 데이터에 대한 성능 역시 linear kernel이 우수한 성능을 보였다.
+
+즉, 학습 데이터 부족에 의한 과적합 문제로 인해서 rbf kernel과 같은 비선형 변환 kernel의 성능이 낮은 것이 아니다.
+
+#### 결정경계 시각화
+
+그렇다면 입력 변수의 개수가 적을수록 비선형 변환 kernel의 성능에 악영향을 준다는 것일까?
+
+직관적으로 생각해보면 입력 변수가 많아질수록 데이터는 복잡해지고, 복잡한 구조를 가질수록 비선형 변환을 하는 것이 유리할 것이다.
+
+반대로 단순한 데이터일수록 선형 분리하는 것이 더 쉬워질 것이다.
+
+하지만 데이터의 복잡도를 직접 정량화하는 방법을 모르기 때문에 결정경계를 시각화하여 정성적으로 확인을 해보았다.
