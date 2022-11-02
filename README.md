@@ -8,5 +8,3 @@
 ## 2. Kernel based Learning
 
 * Support Vector Machine(SVM)
-
-* Support Vector Regression(SVR)
