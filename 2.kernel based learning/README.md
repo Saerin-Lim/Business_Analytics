@@ -342,19 +342,39 @@ for kernel in ['linear','rbf']:
 
 하지만 다른 대부분의 데이터에서는 학습 데이터에 대한 성능 역시 linear kernel이 우수한 성능을 보였다.
 
-즉, 학습 데이터 부족에 의한 과적합 문제로 인해서 rbf kernel과 같은 비선형 변환 kernel의 성능이 낮은 것이 아니다.
+즉, 과적합의 문제도 존재하지만 기본적으로 linear kernel의 성능 자체가 rbf kernel보다 더 좋다고 볼 수 있다.
 
 #### 결정경계 시각화
 
-그렇다면 입력 변수의 개수가 적을수록 비선형 변환 kernel의 성능에 악영향을 준다는 것일까?
+linear kernel과 rbf kernel을 정성적으로 비교하기 위해서 결정경계를 시각화 한 뒤, 직접적인 차이를 보았다.
 
-직관적으로 생각해보면 입력 변수가 많아질수록 데이터는 복잡해지고, 복잡한 구조를 가질수록 비선형 변환을 하는 것이 유리할 것이다.
+chapter 1에서 배운 t-SNE를 활용해 feature를 2개로 줄인 뒤 시각화하였다. 시각화 코드는 아래와 같으며, data를 바꿔가며 시각화를 진행했다.
 
-반대로 단순한 데이터일수록 선형 분리하는 것이 더 쉬워질 것이다.
+* iris
 
-하지만 데이터의 복잡도를 직접 정량화하는 방법을 모르기 때문에 결정경계를 시각화하여 정성적으로 확인을 해보았다.
+![iris](https://user-images.githubusercontent.com/80674834/199669095-66672716-2636-45b3-ace9-afe488eac25f.png)
 
+* titanic
 
+![titanic](https://user-images.githubusercontent.com/80674834/199658958-b522ae0d-1c7a-44de-82bd-c1c61d25857a.png)
+
+* algerian forest fires
+
+![algerian_forest_fires](https://user-images.githubusercontent.com/80674834/199669118-a2384a0c-6bde-4118-9d94-51e1329e4491.png)
+
+* KMNIST
+
+![KMNIST](https://user-images.githubusercontent.com/80674834/199669173-69351dac-f09a-4365-8ee9-3af7844ed9dd.png)
+
+t-SNE를 활용해 feature dimension을 줄였기 때문에 정확한 결정경계는 아니지만 어느정도 패턴을 확인할 수 있었다.
+
+먼저 iris처럼 두 kernel 모두 성능이 좋은 것은 이미 calss간 경계가 뚜렸했다.(매우 단순한 데이터셋)
+
+반면에 titanic이나 algerian forest fires와 같이 적당히 단순한 데이터셋은 선형 결정경계만으로도 충분히 잘 구분할 수 있었다.
+
+마지막으로 매우 복잡한 데이터인 KMNIST의 경우, 선형으로 분리하기 힘들기 때문에 rbf kernel을 활용한 비선형 결졍경계의 성능이 훨씬 좋을 것을 볼 수 있다.
+
+결론적으로 적당히 단순한 데이터에는 linear kernel의 성능이 좋았고, 복잡한 데이터에서는 rbf kernel의 성능이 좋음을 확인하였다.
 
 ---
 
