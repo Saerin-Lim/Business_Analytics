@@ -7,4 +7,4 @@
 
 ## 2. Kernel based Learning
 
-* Support Vector Machine(SVM)
+* [Support Vector Machine(SVM)](https://github.com/Saerin-Lim/Business_Analytics/tree/master/2.kernel%20based%20learning)
