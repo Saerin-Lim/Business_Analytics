@@ -295,7 +295,7 @@ def train(train_loader, model, loss_fn, opt, epochs = 50):
 
     return total_loss
     
-epochs = 5
+epochs = 50
 loss_fn = nn.MSELoss().to(device)
 opt = torch.optim.Adam(model.parameters(), lr=3e-4, weight_decay=5e-4)
 
@@ -307,11 +307,11 @@ Epoch : 2 | train loss : 0.464002 | required time : 1.42
 
 Epoch : 3 | train loss : 0.181021 | required time : 1.41
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ㆍ
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ㆍ
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ㆍ
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ㆍ
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ㆍ
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ㆍ
 
 Epoch : 48 | train loss : 0.027556 | required time : 1.48
 
@@ -319,12 +319,33 @@ Epoch : 49 | train loss : 0.027684 | required time : 1.42
 
 Epoch : 50 | train loss : 0.027613 | required time : 1.5
 
-total loss를 활용해서 loss plot을 그려본다.
+total loss를 활용해서 loss plot을 그려본다. 아래의 loss plot을 통해서 학습이 잘 이루어졌음을 확인할 수 있다.
 
-'''py
-import matplotlib
-'''
+```py
+import matplotlib.pyplot as plt
+import seaborn as sns
 
+sns.lineplot(x=range(6,51), y=total_loss[5:])
+plt.xlabel('Epoch')
+plt.ylabel('Train Loss')
+plt.title('Train Loss per Epoch')
+plt.show()
+```
 
+![loss](https://user-images.githubusercontent.com/80674834/201931518-d1552a19-9357-449c-9234-26095343769d.png)
 
+#### 이상 탐지 단계
 
+이상 탐지 단계에서는 학습이 완료된 오토인코더에 새로운 이미지를 넣어서 복원값을 구한 뒤, 실제값과 복원값의 차이를 통해 anomaly score를 정의하게 된다.
+
+일반적으로 anomaly score는 MSE와 MAE가 많이 활용되며 튜토리얼에서는 MSE를 활용한다.
+
+새로운 이미지에 대한 anomaly score가 계산되면 threshold와 비교해서 threshold보다 크면 이상, 작으면 정상으로 분류한다.
+
+![image](https://user-images.githubusercontent.com/80674834/201941533-4f548c93-7bb2-4131-b705-6475a980a0b5.png)
+
+먼저 새로운 데이터에 대해서 anomaly score를 계산하는 함수를 만든다.
+
+```py
+
+```
