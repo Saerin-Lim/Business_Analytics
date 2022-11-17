@@ -15,7 +15,7 @@
 
 이번 튜토리얼에서 활용할 데이터셋은 대표적인 이미지 데이터인 MNIST와 히라가나 버전 MNIST인 K-MNIST를 활용한다.
 
-두 데이터셋은 각각 28by28 size gray scale image가 총 10개의 class로 나누어져 있다. 전체 이미지 수는 각 데이터마다 60000장 씩 존재한다.
+두 데이터셋은 각각 28by28 size gray scale image가 총 10개의 class로 나누어져 있다. 전체 이미지 수는 각 데이터마다 70000장 씩 존재한다.
 
 ![image](https://user-images.githubusercontent.com/80674834/202104231-01c42651-08b9-4e61-8dcd-9d30ee99157e.png)
 
