@@ -525,23 +525,34 @@ Grid search 결과, best threshold = 0.0195이며 검증 데이터에 대한 f1-
 
 ```py
 # get anomaly scores of test set
-df = get_anomaly_score(model, test_loader)
+test_df = get_anomaly_score(model, test_loader)
 
-# histogram of anomlay scores according to class(normal or abnormal)
-sns.histplot(df[df['target']==0]['anomaly score'],
-             color='blue', label='normal')
+search_space = np.arange(0.006, 0.028+0.0005, 0.0005)
 
-sns.histplot(df[df['target']==1]['anomaly score'],
-             color='red', label='abnormal')
-plt.title('Histogram of Anomaly Scores')
+f1_list = []
+acc_list = []
+our_threshold = best_threshold
+
+for threshold in search_space:
+    
+    crt_f1, crt_acc = anomaly_detection(test_df, threshold)
+    f1_list.append(crt_f1)
+    acc_list.append(crt_acc)
+    
+    
+sns.lineplot(search_space, f1_list, label='f1-score')
+sns.lineplot(search_space, acc_list, label='accuracy')
+
+plt.axvline(x=best_threshold, color='green')
+plt.title('Detection Performace')
+plt.xlabel('threshold')
+plt.ylabel('performace')
 plt.legend()
 
-# anomaly detection
-f1, acc = anomaly_detection(df, best_threshold)
-
-print(f'Test f1-score : {round(f1*100,2)} | Test accuracy : {round(acc*100,2)}')
+our_f1, our_acc = crt_f1, crt_acc = anomaly_detection(test_df, best_threshold)
+print(f'Testset performace of our threshold -> f1-score : {round(our_f1*100,2)} | accuracy : {round(our_acc*100,2)}')
 ```
-Test f1-score : 96.54 | Test accuracy : 96.57
+Testset performace of our threshold -> f1-score : 96.54 | accuracy : 96.57
 
 ![test results](https://user-images.githubusercontent.com/80674834/202137230-dcf62748-7db7-4c15-95fd-6461b285a066.png)
 
