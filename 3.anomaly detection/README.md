@@ -208,13 +208,7 @@ class Encoder(nn.Module):
 
 인코더보다 CNN block이 하나 더 많은 이유는 GAP로 축소된 차원을 다시 복원하기 위함이다.
 
-
-
-hid_dim에서 시작해서 layer_dims의 역순으로 점점 커지는 구조를 가진다.
-
-make_layers 함수에서 layer_dims를 역순으로 바꾸고 encoder와 같이 linear layer와 ReLU 함수 시퀀스를 생성한다.
-
-마지막으로 이미지 데이터 공간인 3*32*32차원으로 이미지를 매핑해주는 linear layer를 추가한 뒤, 1by32by32 형태로 reshape을 진행한다.
+출력층 CNN block에서는 활성화 함수를 사용하지 않았다.
 
 ```py
 class Decoder(nn.Module):
