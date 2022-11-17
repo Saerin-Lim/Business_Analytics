@@ -447,6 +447,8 @@ anomaly_detection 함수는 get_anomaly_score에서 나온 dataframe과 threshol
 
 그리고 최종적으로 예측한 정상/이상과 실제 정상/이상에 대한 탐지 성능를 반환한다. 본 튜토리얼에서는 f1-score를 모델 성능 평가 지표로 활용하였다.
 
+* threshold grid search
+
 먼저 get_anomaly_score 함수를 이용해서 검증집합에 대한 anomaly score를 계산하고 정상과 이상의 anomaly score 통계량 및 분포를 확인한다.
 
 확인한 통계량을 바탕으로 threshold grid search space를 결정할 것이다.
@@ -491,7 +493,6 @@ abnormal max & min : (0.226932,0.006235)
 
 그리고 0.006부터 0.0005씩 증가시키며 검증 데이터에 대한 이상 탐지 성능을 평가한 후, 가장 좋은 성능을 보인 threshold를 최종 threshold로 결정한다.
 
-* threshold grid search
 ```py
 def threshold_search(df:pd.DataFrame, min, max, step):
     search_space = np.arange(min, max+step, step)
