@@ -125,16 +125,17 @@ data loader는 batch size만큼 데이터를 가져오는 generator를 생성하
 이 때, 학습을 위한 batch size는 256으로 설정했다.
 
 ```py
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms
 
 class Custom_dataset(Dataset):
     def __init__(self, X, y):
         super().__init__()
         
-        # define transform for preprocessing
-        self.transform = transforms.Compose([transforms.ToTensor()])
-        
+        #transform img size (28,28) to (32,32)
+        self.transform = transforms.Compose([transforms.ToPILImage(),
+                                             transforms.Resize(32),
+                                             transforms.ToTensor()])
         self.X, self.y = X, y
             
     def __getitem__(self, idx):
@@ -146,6 +147,10 @@ class Custom_dataset(Dataset):
 train_set = Custom_dataset(X_train, y_train)
 valid_set = Custom_dataset(X_valid, y_valid)
 test_set = Custom_dataset(X_test, y_test)
+
+train_loader = DataLoader(train_set, batch_size=256, shuffle=True)
+valid_loader = DataLoader(valid_set, batch_size=256, shuffle=False)
+test_loader = DataLoader(test_set, batch_size=256, shuffle=False)
 ```
 
 ---
