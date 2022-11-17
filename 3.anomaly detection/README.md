@@ -447,7 +447,7 @@ anomaly_detection 함수는 get_anomaly_score에서 나온 dataframe과 threshol
 
 그리고 최종적으로 예측한 정상/이상과 실제 정상/이상에 대한 탐지 성능를 반환한다. 본 튜토리얼에서는 f1-score를 모델 성능 평가 지표로 활용하였다.
 
-* threshold grid search
+#### threshold grid search
 
 먼저 get_anomaly_score 함수를 이용해서 검증집합에 대한 anomaly score를 계산하고 정상과 이상의 anomaly score 통계량 및 분포를 확인한다.
 
