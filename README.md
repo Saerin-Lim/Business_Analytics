@@ -15,4 +15,4 @@
 
 ## 4. Ensemble Learning
 
-* [Bagging & Boosting in terms of base learner](TBD)
+* Bagging & Boosting in terms of base learner(TBD)
