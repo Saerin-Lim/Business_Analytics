@@ -54,6 +54,8 @@ y = {'train':y_train, 'test':y_test}
 
 print(f'X train : {X_train.shape}, y train : {y_train.shape}')
 print(f'X test : {X_test.shape}, y test : {y_test.shape}')
+```
+
 ---
 
 ### 실험 설계
@@ -183,13 +185,13 @@ acc : 32.66 | time : 23.34
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ㆍ
 
-method : Bagging | seed : 3 | max_depth : 50
+method : Bagging | seed : 3 | max_depth : 16
 
-acc : 95.61 | time : 368.66 
+acc : 95.59 | time : 254.77 
 
-method : Bagging | seed : 4 | max_depth : 50
+method : Bagging | seed : 4 | max_depth : 16
 
-acc : 95.59 | time : 362.74 
+acc : 95.46 | time : 253.62 
 
 #### Boosting 실험
 
@@ -207,21 +209,21 @@ Boosting based Ensemble training start...
 
 method : Boosting | seed : 0 | max_depth : 1
 
-acc : 72.99 | time : 47.47 
+acc : 72.99 | time : 46.48 
 
 method : Boosting | seed : 1 | max_depth : 1
 
-acc : 72.99 | time : 46.64 
+acc : 72.99 | time : 46.51 
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ㆍ
 
-method : Boosting | seed : 0 | max_depth : 1
+method : Boosting | seed : 3 | max_depth : 16
 
-acc : 72.99 | time : 47.47 
+acc : 96.41 | time : 427.12 
 
-method : Boosting | seed : 1 | max_depth : 1
+method : Boosting | seed : 4 | max_depth : 16
 
-acc : 72.99 | time : 46.64 
+acc : 96.29 | time : 428.65 
 
 #### Random forest 실험
 
@@ -234,8 +236,25 @@ rf_df = repeat_exp(X, y,
                     seed_list=seed_list,
                     depth_list=depth_list)
 ```
+Random_forest based Ensemble training start...
 
+method : Random_forest | seed : 0 | max_depth : 1
 
+acc : 53.71 | time : 1.27 
+
+method : Random_forest | seed : 1 | max_depth : 1
+
+acc : 51.06 | time : 1.25 
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ㆍ
+
+method : Random_forest | seed : 3 | max_depth : 16
+
+acc : 96.57 | time : 17.03 
+
+method : Random_forest | seed : 4 | max_depth : 16
+
+acc : 96.36 | time : 17.02 
 
 ---
 
@@ -244,16 +263,49 @@ rf_df = repeat_exp(X, y,
 실험 결과를 직관적으로 확인하기 위해 그래프를 통해 결과를 시각화하고 분석한다.
 
 * Bagging vs Boosting
-```py
-```
 
 #### in terms of accuracy
 
-왼쪽 그래프를 보면 모델 성능과 max_depth의 관계를 보면 bagging기반 앙상블과 boosting기반 앙상블 모두 성능이 증가하는 것을 볼 수 있다. 모델 복잡도가 증가할수록 모델의 성능이 증가하는 것은 일반적인 현상이다.
+```py
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# accuracy vs max_depth line plot
+plt.figure(figsize=(10,8))
+
+sns.lineplot(data=bagging_df, x='max_depth', y='acc', label='Bagging')
+sns.lineplot(data=boosting_df, x='max_depth', y='acc', label='Boosting')
+
+plt.xlabel('Max depth')
+plt.ylabel('Accuracy')
+plt.title('Bagging vs Boosting in terms of accuracy')
+
+plt.legend()
+plt.show()
+
+# time vs max_depth line plot
+plt.figure(figsize=(10,8))
+
+sns.lineplot(data=bagging_df, x='max_depth', y='time', label='Bagging')
+sns.lineplot(data=boosting_df, x='max_depth', y='time', label='Boosting')
+
+plt.xlabel('Max depth')
+plt.ylabel('Accuracy')
+plt.title('Bagging vs Boosting in terms of training time')
+
+plt.legend()
+plt.show()
+```
+
+![image](https://user-images.githubusercontent.com/80674834/203702855-732e814d-5d1b-4730-86d5-fac1ce9f0386.png)
+
+위 그래프들은 max depth를 x축, accuracy와 training time을 각각 y축으로 하여 모델의 복잡도에 따른 성능과 학습 시간 변화를 볼 수 있다. 선 주변에 연한 밴드는 5회 반복실험에서 95% 신뢰 구간을 나타낸다.
+
+먼저 왼쪽 그래프를 보면 모델 성능과 max_depth의 관계를 보면 bagging기반 앙상블과 boosting기반 앙상블 모두 성능이 증가하는 것을 볼 수 있다. 모델 복잡도가 증가할수록 모델의 성능이 증가하는 것은 일반적인 현상이다.
 
 하지만 우리가 주목해야할 부분은 모델 복잡도가 극단적으로 낮은 max_depth=1인 경우, 즉 stamp tree가 base learner인 경우이다.
 
-먼저 bagging에서 base learner가 stamp tree인 경우 성능이 약 34%정도로 매우 저조한 것을 확인할 수 있다. 반면에 boosting 기반 앙상블인 adaboost의 경우에는 성능이 약 73%로 꽤 준수한 성능을 보인다.
+Bagging에서 base learner가 stamp tree인 경우 성능이 약 34%정도로 매우 저조한 것을 확인할 수 있다. 반면에 boosting 기반 앙상블인 adaboost의 경우에는 성능이 약 73%로 꽤 준수한 성능을 보인다.
 
 Bagging기반 앙상블은 모델을 병렬적으로 학습시키고 aggrigation하기 때문에 각 모델의 성능이 어느정도 뛰어나야 하지만, boosting기반 앙상블은 모델을 순차적으로 학습시키면서 이전 모델의 단점을 보완하는 식으로 학습하기 때문에 weak learner로도 충분히 잘 학습된다는 사실을 실험적으로 볼 수 있다.
 
@@ -261,7 +313,7 @@ Bagging기반 앙상블은 모델을 병렬적으로 학습시키고 aggrigation
 
 오른쪽 그래프를 통해서 base learner의 모델 복잡도와 앙상블 학습 시간에 대한 관계를 볼 수 있다. 기본적으로 두 방법 모두 base learner의 모델 복잡도가 증가할수록 학습 시간이 길어지는 것을 확인할 수 있다. 
 
-또한 병렬적으로 base learner를 학습하는 bagging 기반 앙상블에 비해서 순차적으로 모델을 학습하는 boosting 기반 앙상블이 모델 복잡도가 증가할수록 학습 시간이 증가하는 폭이 훨씬 큰 것 실험적으로 확인 할 수 있다.
+또한 병렬적으로 base learner를 학습하는 bagging 기반 앙상블에 비해서 순차적으로 모델을 학습하는 boosting 기반 앙상블이 학습 시간을 더 많이 요구하며, 모델 복잡도가 증가할수록 학습 시간이 증가하는 폭 역시 훨씬 큰 것을 실험적으로 확인 할 수 있다.
 
 또 하나 흥미로운 점은 boosting 기반 앙상블에서 base learner를 조금만 더 좋은 모델로 활용하면 성능이 큰 폭으로 상승한다는 것이다.
 
@@ -272,8 +324,33 @@ Bagging기반 앙상블은 모델을 병렬적으로 학습시키고 aggrigation
 * decision tree based bagging vs random forest
 
 ```py
+# decision tree based bagging vs random forest in terms of accuracy
+plt.figure(figsize=(10,8))
 
+sns.lineplot(data=bagging_df, x='max_depth', y='acc', label='Bagging')
+sns.lineplot(data=rf_df, x='max_depth', y='acc', label='random forest')
+
+plt.xlabel('Max depth')
+plt.ylabel('Accuracy')
+plt.title('Decision tree based bagging vs Random Forest in terms of accuracy')
+
+plt.legend()
+plt.show()
+
+# decision tree based bagging vs random forest in terms of training time
+plt.figure(figsize=(10,8))
+
+sns.lineplot(data=bagging_df, x='max_depth', y='time', label='Bagging')
+sns.lineplot(data=rf_df, x='max_depth', y='time', label='random forest')
+
+plt.xlabel('Max depth')
+plt.ylabel('Training time')
+plt.title('Decision tree based bagging vs Random Forest in terms of training time')
+
+plt.legend()
+plt.show()
 ```
+![image](https://user-images.githubusercontent.com/80674834/203703309-57eb3bca-d1a1-4ff4-97e7-3f0538adbcaa.png)
 
 이번 튜토리얼에서 개인적으로 가장 궁금했던 부분이었다.
 
