@@ -297,7 +297,7 @@ plt.legend()
 plt.show()
 ```
 
-![image](https://user-images.githubusercontent.com/80674834/203702855-732e814d-5d1b-4730-86d5-fac1ce9f0386.png)
+![image](https://user-images.githubusercontent.com/80674834/203703652-06d750ac-7e96-4f84-b913-76afe5c6e3c2.png)
 
 위 그래프들은 max depth를 x축, accuracy와 training time을 각각 y축으로 하여 모델의 복잡도에 따른 성능과 학습 시간 변화를 볼 수 있다. 선 주변에 연한 밴드는 5회 반복실험에서 95% 신뢰 구간을 나타낸다.
 
@@ -305,7 +305,7 @@ plt.show()
 
 하지만 우리가 주목해야할 부분은 모델 복잡도가 극단적으로 낮은 max_depth=1인 경우, 즉 stamp tree가 base learner인 경우이다.
 
-Bagging에서 base learner가 stamp tree인 경우 성능이 약 34%정도로 매우 저조한 것을 확인할 수 있다. 반면에 boosting 기반 앙상블인 adaboost의 경우에는 성능이 약 73%로 꽤 준수한 성능을 보인다.
+Bagging에서 base learner가 stamp tree인 경우 성능이 약 33%정도로 매우 저조한 것을 확인할 수 있다. 반면에 boosting 기반 앙상블인 adaboost의 경우에는 성능이 약 73%로 꽤 준수한 성능을 보인다.
 
 Bagging기반 앙상블은 모델을 병렬적으로 학습시키고 aggrigation하기 때문에 각 모델의 성능이 어느정도 뛰어나야 하지만, boosting기반 앙상블은 모델을 순차적으로 학습시키면서 이전 모델의 단점을 보완하는 식으로 학습하기 때문에 weak learner로도 충분히 잘 학습된다는 사실을 실험적으로 볼 수 있다.
 
