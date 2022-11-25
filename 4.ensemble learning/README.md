@@ -7,7 +7,7 @@
 
 Bagging 기반 알고리즘은 부스트랩을 활용해 모델을 병렬적으로 학습하여 다양한 데이터 분포를 학습할 수 있기 때문에 예측값의 분산을 줄일 수 있다. 따라서 일반적으로 편향이 크고 분산이 큰 복잡한 모델을 활용하며 대표적인 Bagging 기반 알고리즘인 random forest 역시 decision tree를 base learner로 활용한다. 
 
-반면에 Boosting 기반 알고리즘은 대부분 stemp tree와 같은 weak learner를 base learner로 활용하는데, 이 weak learner는 예측값에 대한 분산이 낮고 편향이 높다. 
+반면에 Boosting 기반 알고리즘은 대부분 stamp tree와 같은 weak learner를 base learner로 활용하는데, 이 weak learner는 예측값에 대한 분산이 낮고 편향이 높다. 
 
 정리하자면 Bagging 기반 알고리즘은 복잡도가 높은 모델을 base learner로 사용하고 Boosting 기반 알고리즘은 복잡도가 낮은 모델을 base learner로 사용한다. 
 
