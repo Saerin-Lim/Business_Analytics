@@ -101,11 +101,13 @@ CIFAR-10은 기본적으로 학습 데이터와 테스트 데이터가 50000장/
 
 본 튜토리얼에서는 SubsetRandomSampler라는 함수를 이용하여 이 과정을 구현한다. SubsetRandomSampler는 가져오길 원하는 부분집합 데이터의 index만 입력하면 부분집합만 데이터를 가져올 수 있도록 하는 sampling 함수이다.
 
+또한, dataloader를 labeled loader, unlabeled loader, pseudo-labeled loader으로 구성하고 labeled loader와 pseudo-labeled loader를 합치는 방식으로 구현하였다.
+
 이 과정에서 init_dataloaders 함수와 update_dataloaders 함수를 작성하였다.
 
-먼저 init_dataloaders 함수는 학습을 시작하기 전, dataloader를 초기화 한다. 즉, 전체 학습 데이터에서 labeled dataset과 unlabeled dataset을 특정 개수만큼(args.num_l) 분할한다.
+먼저 init_dataloaders 함수는 학습을 시작하기 전, dataloader를 초기화 한다. 즉, 전체 학습 데이터에서 labeled dataset과 unlabeled dataset을 특정 개수만큼(args.num_l) 분할하고 sampler를 통해서 각각의 loader를 정의한다. Pseudolabeled dataset은 없기 때문에 pseudo-labeled loader는 None으로 초기화 한다.
 
-다음으로 update_dataloaders 함수는 pseudo label이 생성되면 해당하는 데이터를 labeled dataset에 추가함과 동시에 unlabeled dataset에서 제거하고, 새로운 label data loader와 unlabeled data loader를 정의한다.
+다음으로 update_dataloaders 함수는 pseudo label이 생성되면 해당하는 데이터를 pseudo labeled dataset에 추가함과 동시에 unlabeled dataset에서 제거하고, 새로운 pseudo-label data loader, unlabeled data loader를 정의한다.
 
 ```py
 import random
@@ -120,7 +122,7 @@ def init_dataloaders(args):
     testset = CIFAR10_Dataset(mode='test')
     
     # define label & unlabel indicies
-    total_indices = list(range(len(trainset.targets)))
+    total_indices = list(range(len(trainset.y)))
     label_indices = random.sample(total_indices, args.num_l)
     unlabel_indices = list(set(total_indices)-set(label_indices))
     
@@ -128,7 +130,7 @@ def init_dataloaders(args):
     label_sampler = SubsetRandomSampler(label_indices)
     unlabel_sampler = SubsetRandomSampler(unlabel_indices)
     
-    print(f'# of train data : {len(total_indices)} | # of test data : {len(testset.targets)}')
+    print(f'# of train data : {len(total_indices)} | # of test data : {len(testset.y)}')
     print(f'# of labeled data in trainset : {len(label_indices)} | # of unlabeled data in trainset : {len(unlabel_indices)}')
     
     # make dataloader
@@ -139,30 +141,39 @@ def init_dataloaders(args):
     loaders = dict(labeled=label_loader,
                    unlabeled=unlabel_loader,
                    test=test_loader,
-                   num_pseudo=[])
+                   pseudo=None)
     
     indices = dict(total=total_indices,
                    labeled=label_indices,
-                   unlabeled=unlabel_indices)
+                   unlabeled=unlabel_indices,
+                   pseudo=[])
     
     return loaders, indices, trainset
 
 def update_dataloaders(args, loaders, indices, pseudo_indices, trainset):
     
-    # update label & unlabel indices
-    indices['labeled'] = indices['labeled'] + pseudo_indices
-    indices['unlabeled'] = list(set(indices['total'])-set(indices['labeled']))
-    indices['num_pseudo'].append(len(pseudo_indices))
+    # update unlabeled indices & pseudo indices
+    indices['pseudo'] = indices['pseudo'] + pseudo_indices
+    indices['unlabeled'] = list(set(indices['unlabeled'])-set(pseudo_indices))
 
     # update sampler
-    label_sampler = SubsetRandomSampler(indices['labeled'])
     unlabel_sampler = SubsetRandomSampler(indices['unlabeled'])
+    pseudo_sampler = SubsetRandomSampler(indices['pseudo'])
 
     # make new dataloader
-    loaders['labeled'] = DataLoader(trainset, batch_size=args.batch_size, sampler=label_sampler)
     loaders['unlabeled'] = DataLoader(trainset, batch_size=args.batch_size, sampler=unlabel_sampler)
+    loaders['pseudo'] = DataLoader(trainset, batch_size=args.batch_size, sampler=pseudo_sampler)
     
-    return loaders, indices
+    # number of labeled & unlabeled data
+    num_pseudo = len(pseudo_indices)
+    total_l = len(indices['labeled'])+len(indices['pseudo'])
+    total_u = len(indices['unlabeled'])
+    
+    labeled_rate = round(total_l/(total_l+total_u)*100,2)
+    
+    print(f'# of new pseudo labels : {num_pseudo} | labeled : unlabeled = {labeled_rate}% : {100-labeled_rate}%')
+    
+    return num_pseudo
 ```
 
 ---
@@ -171,7 +182,7 @@ def update_dataloaders(args, loaders, indices, pseudo_indices, trainset):
 
 다음으로 학습 모델을 구축하였다. 이미지 데이터이기 때문에 CNN기반 모델 중 선택했으며, 그 중 가장 많이 활용되는 Resnet18을 선택했다.
 
-해당 코드는 아래와 같으며, [해당 github](https://github.com/pytorch/vision/blob/main/torchvision/models/resnet.py)에서 가지고 왔다.
+코드는 아래와 같으며, [해당 github](https://github.com/pytorch/vision/blob/main/torchvision/models/resnet.py)에서 가지고 왔다.
 
 ```py
 import torch.nn as nn
@@ -245,4 +256,20 @@ class ResNet(nn.Module):
         return out
 ```
 
+---
 
+### training(Task -> trainer.py)
+
+다음으로 모델 학습을 위한 trainer를 구성하였다. trainer에는 labeled data를 통해 모델을 학습시키는 train 함수,
+
+학습된 모델을 통해서 unlabeled data에 대한 추론을 하고, pseudo label을 얻는 get_pseudo_label 함수,
+
+마지막으로 테스트 데이터에 대해서 모델을 평가하는 test 함수로 나뉜다.
+
+여기서 가장 핵심은 get_pseudo_label 함수로 특정 epoch마다(args.labeling_period) unlabeled data에 대해서 추론을 하고, 전략에 맞춰서 pseudo labeling을 진행한 뒤, 
+
+해당하는 unlabeled data에 대한 index를 반환한다.
+
+```py
+
+```
