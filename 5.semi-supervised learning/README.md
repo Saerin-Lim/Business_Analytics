@@ -101,13 +101,13 @@ CIFAR-10은 기본적으로 학습 데이터와 테스트 데이터가 50000장/
 
 본 튜토리얼에서는 SubsetRandomSampler라는 함수를 이용하여 이 과정을 구현한다. SubsetRandomSampler는 가져오길 원하는 부분집합 데이터의 index만 입력하면 부분집합만 데이터를 가져올 수 있도록 하는 sampling 함수이다.
 
-또한, dataloader를 labeled loader, unlabeled loader, pseudo-labeled loader으로 구성하고 labeled loader와 pseudo-labeled loader를 합치는 방식으로 구현하였다.
-
 이 과정에서 init_dataloaders 함수와 update_dataloaders 함수를 작성하였다.
 
-먼저 init_dataloaders 함수는 학습을 시작하기 전, dataloader를 초기화 한다. 즉, 전체 학습 데이터에서 labeled dataset과 unlabeled dataset을 특정 개수만큼(args.num_l) 분할하고 sampler를 통해서 각각의 loader를 정의한다. Pseudolabeled dataset은 없기 때문에 pseudo-labeled loader는 None으로 초기화 한다.
+먼저 init_dataloaders 함수는 학습을 시작하기 전, dataloader를 초기화 한다. 즉, 전체 학습 데이터에서 labeled dataset과 unlabeled dataset을 특정 개수만큼(args.num_l) 분할하고 sampler를 통해서 각각의 loader를 정의한다.
 
-다음으로 update_dataloaders 함수는 pseudo label이 생성되면 해당하는 데이터를 pseudo labeled dataset에 추가함과 동시에 unlabeled dataset에서 제거하고, 새로운 pseudo-label data loader, unlabeled data loader를 정의한다.
+다음으로 update_dataloaders 함수는 pseudo label이 생성되면 해당하는 데이터를 labeled dataset에 추가함과 동시에 unlabeled dataset에서 제거하고, 새로운 label data loader, unlabeled data loader를 업데이트 한다. 
+
+이 때, unlabeled data라도 실제로는 label을 가지고 있기 때문에 실제 label을 pseudo label로 교체하는 작업 역시 같이 진행한다. (실제 unlabeled data를 가지고 진행하는 경우에는 img list와 target list에 append만 해주면 된다.)
 
 ```py
 import random
@@ -140,33 +140,35 @@ def init_dataloaders(args):
     
     loaders = dict(labeled=label_loader,
                    unlabeled=unlabel_loader,
-                   test=test_loader,
-                   pseudo=None)
+                   test=test_loader)
     
     indices = dict(total=total_indices,
                    labeled=label_indices,
-                   unlabeled=unlabel_indices,
-                   pseudo=[])
+                   unlabeled=unlabel_indices)
     
     return loaders, indices, trainset
 
-def update_dataloaders(args, loaders, indices, pseudo_indices, trainset):
+def update_dataloaders(args, loaders, indices, pseudo_indices, pseudo_labels, trainset):
     
-    # update unlabeled indices & pseudo indices
-    indices['pseudo'] = indices['pseudo'] + pseudo_indices
+    # update labeled & unlabeled indices
+    indices['labeled'] = indices['labeled'] + pseudo_indices
     indices['unlabeled'] = list(set(indices['unlabeled'])-set(pseudo_indices))
 
+    # update labels to pseudo labels
+    for idx, pseudo_label in zip(pseudo_indices, pseudo_labels):
+        trainset.y[idx] = pseudo_label
+    
     # update sampler
+    labeled_sampler = SubsetRandomSampler(indices['labeled'])
     unlabel_sampler = SubsetRandomSampler(indices['unlabeled'])
-    pseudo_sampler = SubsetRandomSampler(indices['pseudo'])
 
     # make new dataloader
+    loaders['labeled'] = DataLoader(trainset, batch_size=args.batch_size, sampler=labeled_sampler)
     loaders['unlabeled'] = DataLoader(trainset, batch_size=args.batch_size, sampler=unlabel_sampler)
-    loaders['pseudo'] = DataLoader(trainset, batch_size=args.batch_size, sampler=pseudo_sampler)
     
     # number of labeled & unlabeled data
     num_pseudo = len(pseudo_indices)
-    total_l = len(indices['labeled'])+len(indices['pseudo'])
+    total_l = len(indices['labeled'])
     total_u = len(indices['unlabeled'])
     
     labeled_rate = round(total_l/(total_l+total_u)*100,2)
@@ -262,14 +264,178 @@ class ResNet(nn.Module):
 
 다음으로 모델 학습을 위한 trainer를 구성하였다. trainer에는 labeled data를 통해 모델을 학습시키는 train 함수,
 
-학습된 모델을 통해서 unlabeled data에 대한 추론을 하고, pseudo label을 얻는 get_pseudo_label 함수,
+테스트 데이터에 대해서 모델을 평가하는 test 함수,
 
-마지막으로 테스트 데이터에 대해서 모델을 평가하는 test 함수로 나뉜다.
+마지막으로 학습된 모델을 통해서 unlabeled data에 대한 추론을 하고, pseudo label을 얻는 get_pseudo_label 함수로 나뉜다.
 
-여기서 가장 핵심은 get_pseudo_label 함수로 특정 epoch마다(args.labeling_period) unlabeled data에 대해서 추론을 하고, 전략에 맞춰서 pseudo labeling을 진행한 뒤, 
-
-해당하는 unlabeled data에 대한 index를 반환한다.
+여기서 가장 핵심은 get_pseudo_label 함수로 특정 epoch마다(args.labeling_period) unlabeled data에 대해서 추론을 하고, 전략에 맞춰서 pseudo labeling을 진행한 뒤, 해당하는 unlabeled data에 대한 index와 pseudo label을 반환한다.
 
 ```py
+import torch
+import torch.nn as nn
+import numpy as np
+from sklearn.metrics import accuracy_score
 
+def train(args, model, opt, criterion, train_loader):
+    model.train()
+    train_loss = 0.
+    
+    # supervised learning with labeled data + pseudo labeled data
+    for idx, batch in enumerate(train_loader):
+        inputs = batch['X'].to(args.device) # B, 3, 32, 32
+        targets = batch['y'].to(args.device) # B,
+        
+        # get pred
+        preds = model(inputs) # B, 10
+        
+        # get cross entropy loss
+        loss = criterion(preds, targets)
+        
+        # backpropagation
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+        
+        train_loss += loss.item()
+        
+    train_loss /= (idx+1)
+    
+    return train_loss
+
+def test(args, model, test_loader):
+    model.eval()
+    softmax = nn.Softmax()
+    
+    y_true, y_pred = [], []
+    
+    for batch in test_loader:
+        inputs = batch['X'].to(args.device) # B, 3, 32, 32
+        
+        # get pred
+        probs = softmax(model(inputs)) # B, 10
+        y_pred += probs.argmax(dim=-1).detach().cpu().tolist() # B,
+        
+        y_true +=  batch['y'].detach().tolist() # B,
+        
+    acc = accuracy_score(y_true, y_pred)
+    
+    return acc
+
+def get_pseudo_label(args, model, unlabeled_loaders):
+    model.eval()
+    softmax = nn.Softmax()
+    
+    
+    data_indices = [] # total unlabeled data index
+    max_probs = [] # max prob list
+    pred_labels = [] # pseudo label list
+    
+    # get probability of unlabeled data
+    with torch.no_grad():
+        for batch in unlabeled_loaders:
+            
+            data_indices += batch['idx'].tolist()
+            inputs = batch['X'].to(args.device) # B, 3, 32, 32
+            
+            # get class distribution using softmax function
+            preds = softmax(model(inputs)) # B, 10
+            
+            # get max prob and pseudo label
+            probs, pseudo = preds.max(dim=1)
+            
+            max_probs += probs.detach().cpu().tolist()
+            pred_labels += pseudo.tolist()
+    
+    # get pseudo label
+    if args.strategy == 'threshold':
+        candidates = np.argwhere(np.array(max_probs) > args.threshold).reshape(-1)
+        
+    elif args.strategy == 'top_k':
+        candidates = np.argsort(max_probs)[::-1][:args.top_k]
+        
+    else:
+        candidates_1 = np.argwhere(np.array(max_probs) > args.threshold).reshape(-1)
+        candidates_2 = np.argsort(max_probs)[::-1][:args.top_k]
+        
+        # data taht satisfy both threshold and top_k
+        candidates = np.intersect1d(candidates_1, candidates_2)
+    
+    pseudo_indices = np.array(data_indices)[candidates].tolist()
+    pseudo_labels = np.array(pred_labels)[candidates].tolist()
+    
+    return pseudo_indices, pseudo_labels
 ```
+
+---
+
+### Main function(run.py)
+
+마지막으로 위에서 작성한 모듈들을 바탕으로 main 코드를 완성한다.
+
+전체적인 코드 과정을 보면 실험을 위해서 시드를 고정한 후, init_dataloaders함수를 통해 labeled & unlabeled loader를 초기화한다.
+
+그리고 모델과 optimizer, loss function(crossentropy 사용)을 정의하고 학습을 시작한다.
+
+학습 중간중간 pseudo labeling을 할 주기(period)가 오면 get_pseudo_label함수를 통해 pseudo label을 얻고 updatae_dataoladers함수에 입력하여 dataloader를 업데이트한다.
+
+마지막으로 test함수를 통해서 testset에 대한 추론을 진행하고 accuracy를 반환한다.
+
+```py
+import torch, time
+
+from Utils.utils import *
+from dataloaders import *
+from Task.trainer import *
+from model import ResNet, ResidualBlock
+
+import warnings
+warnings.filterwarnings(action='ignore')
+
+def main(args):
+    
+    # set seed & device
+    set_seed(args.seed)
+    device = args.device
+    
+    # initialize dataloaders
+    loaders, indices, trainset = init_dataloaders(args)
+    
+    # define model, optimizer, criterion
+    model = ResNet(ResidualBlock, [2,2,2]).to(device)
+    opt = torch.optim.Adam(model.parameters(),
+                           lr=args.lr, weight_decay=args.weight_decay)
+    criterion = torch.nn.CrossEntropyLoss().to(device)
+    
+    ## Train Model
+    labeled_rate_list = []
+    loss_list = []
+    print('>>> Training Start...')
+    for epoch in range(1, args.epochs+1):
+        since = time.time()
+        train_loss = train(args, model, opt, criterion, loaders['labeled'])
+        train_time = round(time.time()-since,2)
+        loss_list.append(train_loss)
+        print(f'Epoch : {epoch} | Initial Labels : {args.num_l}')
+        print(f'train loss : {round(train_loss,6)} | train time : {train_time}\n')
+        
+        # pseudo labeling period
+        if epoch % args.period == 0: 
+            pseudo_indices, pseudo_labels = get_pseudo_label(args, model, loaders['unlabeled'])
+            num_pseudo, total_l, total_u = update_dataloaders(args, loaders, indices,
+                                                              pseudo_indices, pseudo_labels,trainset)
+
+            labeled_rate = round(total_l/(total_l+total_u)*100,2)
+            labeled_rate_list.append(labeled_rate)
+            print('Pseudo labeling & update DataLoaders')
+            print(f'# of new pseudo labels : {num_pseudo} | labeled : unlabeled = {labeled_rate}% : {100-labeled_rate}%\n')
+    
+    print('>>> Test Start...')
+    acc = test(args, model, loaders['test'])
+    print(f'Test Accuracy : {acc}')
+    
+    return acc, loss_list, labeled_rate_list
+```
+
+---
+
+### 
