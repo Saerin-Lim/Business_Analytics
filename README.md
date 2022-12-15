@@ -19,4 +19,4 @@
 
 ## 5. Semi-supervised Learning
 
-* Self-training
+* [Self-training](https://github.com/Saerin-Lim/Business_Analytics/tree/master/5.semi-supervised%20learning)
