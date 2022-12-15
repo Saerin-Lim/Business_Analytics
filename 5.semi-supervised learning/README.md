@@ -13,7 +13,7 @@ Self-training은 unlabeled data에 대한 추론을 한 뒤, 특정 클래스에
 
 3. 추론 확률이 threshold를 넘는 unalbeled data에 대해 pseudo labeling 진행
 
-4. labeled data와 pseudo-labeled data를 통해서 모델 재학습
+4. labeled data와 pseudo-labeled data를 통해서 새로운 모델 학습
 
 5. unlabeled data에 모두 pseudo-label이 부여되거나 종료 조건을 만족하면 알고리즘 종료
 
@@ -21,7 +21,7 @@ Self-training은 unlabeled data에 대한 추론을 한 뒤, 특정 클래스에
 
 이 과정에서 pseudo labeling을 할 unlabeled data를 정하는 전략은 중요한 hyperparameter 중 하나이다.
 
-일반적으로 확률값이 특정 threshold 이상 (ex.0.9 이상)인 unlabeled data에 대해 pseudo labeling을 하거나, 확률값이 높은 top-k unlabeled data를 뽑는 방법이 있으며, 두가지를 동시에 사용하는 방법도 있다.
+일반적으로 확률값이 특정 threshold 이상 (ex.0.95 이상)인 unlabeled data에 대해 pseudo labeling을 하거나, 확률값이 높은 top-k unlabeled data를 뽑는 방법이 있으며, 두가지를 동시에 사용하는 방법도 있다.
 
 본 튜토리얼에서는 self-training을 from scratch로 코드를 작성하고, threshold 전략, top-k 전략, 그리고 둘 모두를 활용한 threshold + top-k 전략 중 어떤 전략이 가장 성능이 좋은지 확인한다.
 
@@ -45,15 +45,29 @@ class Config(object):
     def __init__(self) -> None:
         
         # experiment hyperparameters
-        self.seed = 2022
+        self.seed = 2022                         # seed
+        self.device = 'cuda:0'
         
         # data hyperparameters
-        self.num_l = 25000
-        self.num_u = 50000 - self.num_l
+        self.train_imgs = 50000                  # number of train imgs
+        self.test_imgs = 10000                   # number of test imgs
+        self.num_l = 25000                       # number of labeled data
+        self.num_u = self.train_imgs - self.num_l# number of unlabeled data
         
         # train hyperparameters
-        self.batch_size = 64 
-    
+        self.batch_size = 128                    # batch size
+        self.lr = 3e-4                           # learning rate
+        self.weight_decay = 5e-4                 # weight decay
+        self.epochs = 5                          # train epoch
+        
+        # self train hyperparameters
+        self.iteration = 3                       # self training iteration
+        #self.period = 10                        # pseudo labeling period
+        
+        # pseudo label strategy hyperparameters
+        self.strategy = 'threshold'              # pseudo labeling strategy ['threshold', 'top_k', 'both']
+        self.threshold = 0.95                    # threshold for pseudo labeling
+        self.top_k = 2500                        # top-k for pseudo labeling
 ```
 
 ---
@@ -66,22 +80,17 @@ CIFAR-10은 pytorch에 내장되어 있어 쉽게 dataset을 구축할 수 있�
 
 ```py
 from torch.utils.data import Dataset
-import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
 class CIFAR10_Dataset(Dataset):
-    def __init__(self, mode:str='train'):
+    def __init__(self, X, y):
         super().__init__()
         
         self.transform = transforms.Compose([transforms.ToTensor(),
-                                            transforms.Normalize((.5,.5,.5),(.5,.5,.5))])
-        
-        if mode == 'train':
-            dataset = datasets.CIFAR10(root='./Data', train=True, download=False)
-        else:
-            dataset = datasets.CIFAR10(root='./Data', train=False, download=False)
-            
-        self.X, self.y = dataset.data, dataset.targets
+                                            transforms.Normalize((0.4914, 0.4822, 0.4465),
+                                                                 (0.2023, 0.1994, 0.2010))])
+
+        self.X, self.y = X, y
     
     def __getitem__(self, index):
         X, y = self.transform(self.X[index]), self.y[index]
@@ -95,48 +104,47 @@ class CIFAR10_Dataset(Dataset):
 
 CIFAR-10은 기본적으로 학습 데이터와 테스트 데이터가 50000장/10000장으로 분할되어 있다. 여기에 semi-supervised scenario를 만들기 위해서 학습 데이터 중 특정 개수만큼 labeled dataset과 unlabeled dataset을 만들어야 한다.
 
-또한, self-training 과정에서 생성되는 pseudo label과 해당하는 이미지는 labeled dataset으로 옮겨짐과 동시에 unlabeled dataset에서 삭제되어야 한다.
-
-아쉽게도 pytorch에서는 동적인 sampling을 지원하지 않기 때문에 학습 중간중간(pseudo label을 생성할 때) labeled dataset과 unlabeled dataset을 재정의하고, dataloader를 새로 업데이트 해줘야 한다.
-
-본 튜토리얼에서는 SubsetRandomSampler라는 함수를 이용하여 이 과정을 구현한다. SubsetRandomSampler는 가져오길 원하는 부분집합 데이터의 index만 입력하면 부분집합만 데이터를 가져올 수 있도록 하는 sampling 함수이다.
+또한, self-training iteration 과정에서 생성되는 pseudo label과 해당하는 이미지는 labeled dataset으로 옮겨짐과 동시에 unlabeled dataset에서 삭제되어야 한다.
 
 이 과정에서 init_dataloaders 함수와 update_dataloaders 함수를 작성하였다.
 
-먼저 init_dataloaders 함수는 학습을 시작하기 전, dataloader를 초기화 한다. 즉, 전체 학습 데이터에서 labeled dataset과 unlabeled dataset을 특정 개수만큼(args.num_l) 분할하고 sampler를 통해서 각각의 loader를 정의한다.
+먼저 init_dataloaders 함수는 학습을 시작하기 전, dataloader를 초기화 한다. 즉, 전체 학습 데이터에서 labeled dataset과 unlabeled dataset을 특정 개수만큼(args.num_l) 분할하고 각각의 loader를 정의한다.
 
-다음으로 update_dataloaders 함수는 pseudo label이 생성되면 해당하는 데이터를 labeled dataset에 추가함과 동시에 unlabeled dataset에서 제거하고, 새로운 label data loader, unlabeled data loader를 업데이트 한다. 
+다음으로 update_dataloaders 함수는 pseudo label과 해당하는 이미지 indices를 입력받아 pseudo dataset을 만들고, labeled dataset과 concat하여 new_labeled_dataset을 만들게 된다.
 
-이 때, unlabeled data라도 실제로는 label을 가지고 있기 때문에 실제 label을 pseudo label로 교체하는 작업 역시 같이 진행한다. (실제 unlabeled data를 가지고 진행하는 경우에는 img list와 target list에 append만 해주면 된다.)
+동시에 unlabeled dataset에서 pseudo label이 된 이미지 indices를 제거하여, labeled loader와 unlabeled loader를 업데이트한다.
 
 ```py
 import random
-from torch.utils.data import DataLoader, SubsetRandomSampler
+import numpy as np
+from torch.utils.data import DataLoader, ConcatDataset
+import torchvision.datasets as torch_datasets
 
 from datasets import CIFAR10_Dataset
 
-def init_dataloaders(args):
+def init_dataloaders(args, X_train, y_train, X_test, y_test):
     
-    # load datasets
-    trainset = CIFAR10_Dataset(mode='train')
-    testset = CIFAR10_Dataset(mode='test')
-    
-    # define label & unlabel indicies
-    total_indices = list(range(len(trainset.y)))
+    # define label & unlabel data
+    total_indices = list(range(args.train_imgs))
     label_indices = random.sample(total_indices, args.num_l)
     unlabel_indices = list(set(total_indices)-set(label_indices))
     
-    # make sampler
-    label_sampler = SubsetRandomSampler(label_indices)
-    unlabel_sampler = SubsetRandomSampler(unlabel_indices)
+    X_labeled, y_labeled = X_train[label_indices], np.array(y_train)[label_indices].tolist()
+    X_unlabeled, y_unlabeled = X_train[unlabel_indices], np.array(y_train)[unlabel_indices].tolist()
     
-    print(f'# of train data : {len(total_indices)} | # of test data : {len(testset.y)}')
+    print(f'# of train data : {args.train_imgs} | # of test data : {args.test_imgs}')
     print(f'# of labeled data in trainset : {len(label_indices)} | # of unlabeled data in trainset : {len(unlabel_indices)}')
+    print(f'labeled : unlabeled = {round(len(label_indices)/500,2)}% : {100-round(len(label_indices)/500,2)}%\n')
+    
+    # make datasets
+    labeled_set = CIFAR10_Dataset(X_labeled, y_labeled)
+    unlabeled_set = CIFAR10_Dataset(X_unlabeled, y_unlabeled)
+    test_set = CIFAR10_Dataset(X_test, y_test)
     
     # make dataloader
-    label_loader = DataLoader(trainset, batch_size=args.batch_size, sampler=label_sampler)
-    unlabel_loader = DataLoader(trainset, batch_size=args.batch_size, sampler=unlabel_sampler)
-    test_loader = DataLoader(testset, batch_size=args.batch_size)
+    label_loader = DataLoader(labeled_set, batch_size=args.batch_size, shuffle=True)
+    unlabel_loader = DataLoader(unlabeled_set, batch_size=args.batch_size, shuffle=True)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size)
     
     loaders = dict(labeled=label_loader,
                    unlabeled=unlabel_loader,
@@ -144,38 +152,45 @@ def init_dataloaders(args):
     
     indices = dict(total=total_indices,
                    labeled=label_indices,
-                   unlabeled=unlabel_indices)
+                   unlabeled=unlabel_indices,
+                   pseudo=[])
     
-    return loaders, indices, trainset
+    return loaders, indices
 
-def update_dataloaders(args, loaders, indices, pseudo_indices, pseudo_labels, trainset):
+def update_dataloaders(args, X_train, y_train, y_pseudo, 
+                       loaders, indices, pseudo_indices, pseudo_labels):
     
-    # update labeled & unlabeled indices
-    indices['labeled'] = indices['labeled'] + pseudo_indices
+    # update pseudo labeled & unlabeled indices
+    indices['pseudo'] += pseudo_indices
     indices['unlabeled'] = list(set(indices['unlabeled'])-set(pseudo_indices))
-
-    # update labels to pseudo labels
-    for idx, pseudo_label in zip(pseudo_indices, pseudo_labels):
-        trainset.y[idx] = pseudo_label
     
-    # update sampler
-    labeled_sampler = SubsetRandomSampler(indices['labeled'])
-    unlabel_sampler = SubsetRandomSampler(indices['unlabeled'])
+    # define labeled & pseudo labeled & unlabeled data
+    X_labeled, y_labeled = X_train[indices['labeled']], np.array(y_train)[indices['labeled']].tolist()
+    X_unlabeled, y_unlabeled = X_train[indices['unlabeled']], np.array(y_train)[indices['unlabeled']].tolist()
+    X_pseudo = X_train[indices['pseudo']]
+    y_pseudo += pseudo_labels # update pseudo labels
+    
+    # make datasets
+    labeled_set = CIFAR10_Dataset(X_labeled, y_labeled)
+    unlabeled_set = CIFAR10_Dataset(X_unlabeled, y_unlabeled)
+    pseudo_set = CIFAR10_Dataset(X_pseudo, y_pseudo)
+    
+    # concat labeled & pseudo labeled set
+    if len(indices['pseudo']) != 0:
+        new_labeled_set = ConcatDataset([labeled_set, pseudo_set])
+    else:
+        new_labeled_set = labeled_set
 
     # make new dataloader
-    loaders['labeled'] = DataLoader(trainset, batch_size=args.batch_size, sampler=labeled_sampler)
-    loaders['unlabeled'] = DataLoader(trainset, batch_size=args.batch_size, sampler=unlabel_sampler)
+    loaders['labeled'] = DataLoader(new_labeled_set, batch_size=args.batch_size, shuffle=True)
+    loaders['unlabeled'] = DataLoader(unlabeled_set, batch_size=args.batch_size, shuffle=True)
     
     # number of labeled & unlabeled data
     num_pseudo = len(pseudo_indices)
     total_l = len(indices['labeled'])
     total_u = len(indices['unlabeled'])
     
-    labeled_rate = round(total_l/(total_l+total_u)*100,2)
-    
-    print(f'# of new pseudo labels : {num_pseudo} | labeled : unlabeled = {labeled_rate}% : {100-labeled_rate}%')
-    
-    return num_pseudo
+    return num_pseudo, total_l, total_u
 ```
 
 ---
@@ -278,7 +293,11 @@ from sklearn.metrics import accuracy_score
 
 def train(args, model, opt, criterion, train_loader):
     model.train()
+    softmax = nn.Softmax()
+    
     train_loss = 0.
+    
+    y_true, y_pred = [], []
     
     # supervised learning with labeled data + pseudo labeled data
     for idx, batch in enumerate(train_loader):
@@ -298,9 +317,13 @@ def train(args, model, opt, criterion, train_loader):
         
         train_loss += loss.item()
         
+        y_true += targets.detach().cpu().tolist()
+        y_pred += softmax(preds).argmax(dim=-1).detach().cpu().tolist()
+        
     train_loss /= (idx+1)
+    train_acc = round(accuracy_score(y_true, y_pred)*100, 2)
     
-    return train_loss
+    return train_loss, train_acc
 
 def test(args, model, test_loader):
     model.eval()
@@ -308,16 +331,17 @@ def test(args, model, test_loader):
     
     y_true, y_pred = [], []
     
-    for batch in test_loader:
-        inputs = batch['X'].to(args.device) # B, 3, 32, 32
+    with torch.no_grad():
+        for batch in test_loader:
+            inputs = batch['X'].to(args.device) # B, 3, 32, 32
+            
+            # get pred
+            probs = softmax(model(inputs)) # B, 10
+            y_pred += probs.argmax(dim=-1).detach().cpu().tolist() # B,
+            
+            y_true +=  batch['y'].detach().tolist() # B,
         
-        # get pred
-        probs = softmax(model(inputs)) # B, 10
-        y_pred += probs.argmax(dim=-1).detach().cpu().tolist() # B,
-        
-        y_true +=  batch['y'].detach().tolist() # B,
-        
-    acc = accuracy_score(y_true, y_pred)
+    acc = round(accuracy_score(y_true, y_pred)*100, 2)
     
     return acc
 
@@ -370,15 +394,17 @@ def get_pseudo_label(args, model, unlabeled_loaders):
 
 ### Main function(run.py)
 
-마지막으로 위에서 작성한 모듈들을 바탕으로 main 코드를 완성한다.
+위에서 작성한 모듈들을 바탕으로 main 코드를 완성한다.
 
 전체적인 코드 과정을 보면 실험을 위해서 시드를 고정한 후, init_dataloaders함수를 통해 labeled & unlabeled loader를 초기화한다.
 
-그리고 모델과 optimizer, loss function(crossentropy 사용)을 정의하고 학습을 시작한다.
+그리고 사전에 정의한 iteration만큼 모델과 optimizer, loss function(crossentropy 사용)을 정의하고 학습을 시작한다.
 
-학습 중간중간 pseudo labeling을 할 주기(period)가 오면 get_pseudo_label함수를 통해 pseudo label을 얻고 updatae_dataoladers함수에 입력하여 dataloader를 업데이트한다.
+각 interation이 끝날 때 마다 get_pseudo_label함수를 통해 pseudo label을 얻고 update_dataoladers함수에 입력하여 dataloader를 업데이트한다.
 
-마지막으로 test함수를 통해서 testset에 대한 추론을 진행하고 accuracy를 반환한다.
+업데이트 된 dataloader를 통해서 다시 새로운 모델을 학습하고 학습이 완료되면 test함수를 통해서 testset에 대한 추론을 진행하고 accuracy를 반환한다.
+
+종료 조건이 만족 될 때까지 반복한다.
 
 ```py
 import torch, time
@@ -396,46 +422,138 @@ def main(args):
     # set seed & device
     set_seed(args.seed)
     device = args.device
+    total_l = args.num_l
     
-    # initialize dataloaders
-    loaders, indices, trainset = init_dataloaders(args)
+    # load CIFAR10
+    trainset = torch_datasets.CIFAR10(root='./Data', train=True, download=False)
+    testset = torch_datasets.CIFAR10(root='./Data', train=False, download=False)
     
-    # define model, optimizer, criterion
-    model = ResNet(ResidualBlock, [2,2,2]).to(device)
-    opt = torch.optim.Adam(model.parameters(),
-                           lr=args.lr, weight_decay=args.weight_decay)
-    criterion = torch.nn.CrossEntropyLoss().to(device)
+    X_train, y_train = trainset.data, trainset.targets
+    X_test, y_test = testset.data, testset.targets
     
-    ## Train Model
-    labeled_rate_list = []
-    loss_list = []
-    print('>>> Training Start...')
-    for epoch in range(1, args.epochs+1):
-        since = time.time()
-        train_loss = train(args, model, opt, criterion, loaders['labeled'])
-        train_time = round(time.time()-since,2)
-        loss_list.append(train_loss)
-        print(f'Epoch : {epoch} | Initial Labels : {args.num_l}')
-        print(f'train loss : {round(train_loss,6)} | train time : {train_time}\n')
+    # initialize dataloaders & pseudo labels
+    loaders, indices = init_dataloaders(args, X_train, y_train, X_test, y_test)
+    y_pseudo = []
+    
+    # start self-training
+    print(f'>>> Self-Training Start...')
+    iter_acc = []
+    num_label_list = [total_l]
+    for i in range(1, args.iteration+1):
         
-        # pseudo labeling period
-        if epoch % args.period == 0: 
-            pseudo_indices, pseudo_labels = get_pseudo_label(args, model, loaders['unlabeled'])
-            num_pseudo, total_l, total_u = update_dataloaders(args, loaders, indices,
-                                                              pseudo_indices, pseudo_labels,trainset)
+        # define model, optimizer, criterion
+        model = ResNet(ResidualBlock, [2,2,2]).to(device)
+        opt = torch.optim.Adam(model.parameters(),
+                            lr=args.lr, weight_decay=args.weight_decay)
+        criterion = torch.nn.CrossEntropyLoss().to(device)
+        
+        ## Train Model
+        print(f'>>> {i}th Iteration...')
+        for epoch in range(1, args.epochs+1):
+            since = time.time()
+            train_loss, train_acc = train(args, model, opt, criterion, loaders['labeled'])
+            train_time = round(time.time()-since,2)
 
-            labeled_rate = round(total_l/(total_l+total_u)*100,2)
-            labeled_rate_list.append(labeled_rate)
-            print('Pseudo labeling & update DataLoaders')
-            print(f'# of new pseudo labels : {num_pseudo} | labeled : unlabeled = {labeled_rate}% : {100-labeled_rate}%\n')
+            print(f'Iteration : {i} | Epoch : {epoch} | Num Labels : {total_l}')
+            print(f'train loss : {round(train_loss,4)} | train acc : {train_acc}% | train time : {train_time}sec\n')
+            
+
+        pseudo_indices, pseudo_labels = get_pseudo_label(args, model, loaders['unlabeled'])
+        num_pseudo, total_l, total_u = update_dataloaders(args, X_train, y_train, y_pseudo, 
+                                                          loaders, indices, pseudo_indices, pseudo_labels)
+
+        labeled_rate = round(total_l/(total_l+total_u)*100,2)
+        num_label_list.append(total_l)
+        print('Pseudo labeling & update DataLoaders')
+        print(f'# of new pseudo labels : {num_pseudo} | labeled : unlabeled = {labeled_rate}% : {round(100-labeled_rate,2)}%\n')
     
-    print('>>> Test Start...')
-    acc = test(args, model, loaders['test'])
-    print(f'Test Accuracy : {acc}')
+        print(f'>>> {i}th Iteration Test Start...')
+        test_acc = test(args, model, loaders['test'])
+        iter_acc.append(test_acc)
+        print(f'Test Accuracy : {test_acc}')
     
-    return acc, loss_list, labeled_rate_list
+    acc = round(np.mean(iter_acc),2)
+    
+    return acc, iter_acc, num_label_list
 ```
 
 ---
 
-### 
+### 실험
+
+Self-training iteration = 3으로 설정하고 각 iteration마다 모델 학습 epoch = 50 으로 설정하였다.
+
+Pseudo labeling strategy는 threshold, top-k, 그리고 둘 다 활용하는 both 총 세 가지를 실험하였다.
+
+이 실험에서 threshold와 top-k 설정은 매우 중요하지만 적절한 값을 찾는 시간이 너무 오래 걸리기 때문에 일반적으로 많이 사용하는 threshold=0.95로 설정하였다.
+
+top-k는 전체 학습 데이터 50000개 중 5%에 해당하는 2500으로 설정하였다.
+
+또한, 초기 labeled data 개수에 따라서 성능이 어떻게 변화하는지 확인하기 위해서 labeled data 개수를 500(1%), 2500(5%), 5000(10%), 12500(25%), 25000(50%)로 바꿔가며 실험을 진행하였다.
+
+각 실험 결과는 results_df에 interation 별 label 개수와 accuracy가 저장되며 지도학습 결과는 첫 번째 iteration 결과로 정의하였다.
+
+```py
+import pandas as pd
+from run import main
+from Utils.config import Config
+
+import warnings
+warnings.filterwarnings(action='ignore')
+
+results_df = pd.DataFrame(columns=['Seed','Strategy','n_1','n_2','n_3','acc_1','acc_2','acc_3'])
+
+args = Config()
+
+labels_list = [500, 2500, 5000, 12500, 25000]
+
+# self-training with threshold strategy
+for num_label in labels_list:
+    args.num_l = num_label
+    args.strategy = 'threshold'
+    acc, iter_acc, label_rate = main(args)
+    crt_dict = {'Seed':args.seed,
+                'Strategy':args.strategy,
+                'n_1':label_rate[0],
+                'n_2':label_rate[1],
+                'n_3':label_rate[2],
+                'acc_1':iter_acc[0],
+                'acc_2':iter_acc[1],
+                'acc_3':iter_acc[2]}
+    results_df = pd.concat([results_df, pd.DataFrame([crt_dict])])
+    
+# self-training with top-k strategy
+for num_label in labels_list:
+    args.num_l = num_label
+    args.strategy = 'top_k'
+    acc, iter_acc, label_rate = main(args)
+    crt_dict = {'Seed':args.seed,
+                'Strategy':args.strategy,
+                'n_1':label_rate[0],
+                'n_2':label_rate[1],
+                'n_3':label_rate[2],
+                'acc_1':iter_acc[0],
+                'acc_2':iter_acc[1],
+                'acc_3':iter_acc[2]}
+    results_df = pd.concat([results_df, pd.DataFrame([crt_dict])])
+    
+# self-training with both strategy
+for num_label in labels_list:
+    args.num_l = num_label
+    args.strategy = 'both'
+    acc, iter_acc, label_rate = main(args)
+    crt_dict = {'Seed':args.seed,
+                'Strategy':args.strategy,
+                'n_1':label_rate[0],
+                'n_2':label_rate[1],
+                'n_3':label_rate[2],
+                'acc_1':iter_acc[0],
+                'acc_2':iter_acc[1],
+                'acc_3':iter_acc[2]}
+    results_df = pd.concat([results_df, pd.DataFrame([crt_dict])])
+```
+
+---
+
+### 실험 
+ 
