@@ -62,7 +62,6 @@ class Config(object):
         
         # self train hyperparameters
         self.iteration = 3                       # self training iteration
-        #self.period = 10                        # pseudo labeling period
         
         # pseudo label strategy hyperparameters
         self.strategy = 'threshold'              # pseudo labeling strategy ['threshold', 'top_k', 'both']
@@ -551,10 +550,46 @@ for num_label in labels_list:
                 'acc_2':iter_acc[1],
                 'acc_3':iter_acc[2]}
     results_df = pd.concat([results_df, pd.DataFrame([crt_dict])])
+
+results_df = results_df.reset_index().drop(['index'], axis=1)
 ```
 
 ---
 
-### 실험 
+### 실험 결과 및 결론
+
+실험 결과를 한 번에 확인하기 위해서 각 label 개수 별(x축)로 accuracy(y축)를 보여주는 lineplot을 strategy마다 그린다.
+
+```py
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+sns.lineplot(data=results_df[results_df['Strategy']=='threshold'], x='n_1',y='acc_1', label='Sup.')
+sns.lineplot(data=results_df[results_df['Strategy']=='threshold'], x='n_1',y='acc_3', label='threshold')
+sns.lineplot(data=results_df[results_df['Strategy']=='top_k'], x='n_1',y='acc_3', label='top-k')
+sns.lineplot(data=results_df[results_df['Strategy']=='both'], x='n_1',y='acc_3', label='both')
+
+plt.xlabel('Number of inital labeled data')
+plt.ylabel('Accuracy')
+plt.title('Test Accuray of each strategy & supervised learning')
+```
  
-ㄴㅇㅇ
+![p1](https://user-images.githubusercontent.com/80674834/207787967-94656dae-d725-4a38-9026-0890f9858cd6.png)
+
+위 그래프는 label 개수에 따른 각 strategy 별 성능을 보여주고 있다.
+
+실험 결과, self-training 방법론이 일반적인 supervised learning보다 모든 구간에서 성능이 더 좋은 것을 볼 수 있다.
+
+self-training strategy에서는 label 수가 적은 상황에서는 top-k가 가장 좋은 전략임을 볼 수 있다. 하지만 label 수가 어느정도 확보된 후부터는 모두 비슷한 성능을 보이고 있다.
+
+label이 적은 상황에서 threshold strategy를 활용하면 threshold는 넘는 것이 많이 없기 때문에 pseudo labeling의 효과를 보기 어려웠을 것이다. 
+
+반면에 일정 개수를 무조건 pseudo labeling하는 top-k는 iteration마다 학습 데이터가 계속 늘어나기 때문에 좋은 성능을 보였을 가능성이 있다.
+
+![image](https://user-images.githubusercontent.com/80674834/207791697-1555f103-83aa-47f6-8adb-aafeefb96e51.png)
+
+위 그래프는 초기 레이블이 500개 주어졌을 때, iteration마다 각 strategy 별로 pseudo labeling 개수가 어떻게 변하는지 보여주고 있다.
+
+실제로 threshold 방법이 들어간 전략에서는 두 번째 iteration에서 거의 pseudo labeling이 거의 없는 것을 볼 수 있다.
+
+하지만 top-k 방법은 잘못 예측된 이미지에도 pseudo label을 부여할 확률이 크기 때문에 seed를 변경하며 반복실험을 해야 정확한 비교를 할 수 있을 것 같다.
